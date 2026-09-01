@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sentinel — account behavior monitor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root{
+    --paper: #ECEEE8;
+    --paper-raised: #E2E5DC;
+    --ink: #1A231F;
+    --ink-muted: #5C665D;
+    --ink-faint: #8A9189;
+    --rule: #C7CBBD;
+    --seal: #2B4A5C;
+    --seal-dim: #6E8A98;
+    --pass: #3F6B4F;
+    --stepup: #9C6A1E;
+    --hold: #8C2F26;
+    --hold-bg: #F4E4E1;
+    --stepup-bg: #F3E8D6;
+    --pass-bg: #E4EAE3;
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Archivo', sans-serif;
+    font-size: 14.5px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .num, .mono{ font-family:'IBM Plex Mono', monospace; }
+
+  button{ font-family: inherit; }
+  button:focus-visible, .row:focus-visible{
+    outline: 2px solid var(--seal);
+    outline-offset: 1px;
+  }
+
+  .app{
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 22px 40px;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    display:flex;
+    align-items: baseline;
+    gap: 20px;
+    padding: 26px 0 18px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .brand{
+    font-weight: 700;
+    font-size: 19px;
+    letter-spacing: -0.01em;
+  }
+  .brand-sub{
+    font-weight: 400;
+    font-size: 13px;
+    color: var(--ink-muted);
+    margin-left: 10px;
+    letter-spacing: 0;
+  }
+  .topbar-spacer{ flex:1; }
+  .status{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    font-size: 13px;
+    color: var(--ink-muted);
+  }
+  .status-dot{
+    width:7px; height:7px;
+    border-radius:50%;
+    background: var(--pass);
+    transition: background .3s ease;
+  }
+  .status.degraded .status-dot{ background: var(--stepup); }
+  .status.degraded .status-text{ color: var(--stepup); font-weight:600; }
+
+  .killswitch{
+    margin-left: 18px;
+    background: transparent;
+    border: 1px solid var(--ink);
+    color: var(--ink);
+    padding: 7px 13px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background .15s ease, color .15s ease, border-color .15s ease;
+  }
+  .killswitch:hover{ background: var(--ink); color: var(--paper); }
+  .killswitch.active{
+    background: var(--stepup);
+    border-color: var(--stepup);
+    color: #fff;
+  }
+  .killswitch.active:hover{ background: #86591a; }
+
+  .glossary-toggle{
+    background:none; border:none; cursor:pointer;
+    display:flex; align-items:center; gap:6px;
+    font-size: 13px; color: var(--ink-muted);
+    margin-left: 14px;
+    padding: 7px 2px;
+  }
+  .glossary-toggle:hover{ color: var(--ink); }
+  .glossary-caret{
+    width:0; height:0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid currentColor;
+    transition: transform .15s ease;
+  }
+  .glossary-toggle.open .glossary-caret{ transform: rotate(180deg); }
+
+  .glossary-panel{
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    padding: 14px 0 4px;
+    margin-top: 14px;
+  }
+  .glossary-panel[hidden]{ display:none; }
+  .glossary-row{
+    display:grid;
+    grid-template-columns: 150px 1fr;
+    gap: 18px;
+    padding: 7px 0;
+    font-size: 13px;
+  }
+  .glossary-term{ font-weight:600; color: var(--ink); }
+  .glossary-def{ color: var(--ink-muted); line-height:1.5; }
+  @media (max-width: 600px){
+    .glossary-row{ grid-template-columns: 1fr; gap:2px; padding: 10px 0; }
+    .glossary-term{ font-size:12.5px; }
+  }
+
+  /* ---------- Degraded banner ---------- */
+  .degraded-banner{
+    background: var(--stepup-bg);
+    border-left: 3px solid var(--stepup);
+    color: #5c3f10;
+    padding: 10px 14px;
+    font-size: 13px;
+    margin-top: 16px;
+  }
+  .degraded-banner strong{ font-weight:600; }
+  .degraded-banner[hidden]{ display:none; }
+
+  /* ---------- Counts strip ---------- */
+  .counts-strip{
+    display:flex;
+    align-items:center;
+    gap: 30px;
+    padding: 18px 0 14px;
+  }
+  .count-item{ display:flex; align-items:baseline; gap:7px; }
+  .count-num{ font-family:'IBM Plex Mono', monospace; font-size:19px; font-weight:600; }
+  .count-label{ font-size:12.5px; color: var(--ink-muted); }
+  #countPass{ color: var(--pass); }
+  #countStepup{ color: var(--stepup); }
+  #countHold{ color: var(--hold); }
+
+  .channel-filter{
+    margin-left:auto;
+    display:flex;
+    gap: 16px;
+  }
+  .filter-btn{
+    background:none; border:none; cursor:pointer;
+    font-size: 13px; color: var(--ink-muted);
+    padding: 3px 0;
+    border-bottom: 2px solid transparent;
+  }
+  .filter-btn.active{ color: var(--ink); border-bottom-color: var(--seal); font-weight:600; }
+
+  /* ---------- Main split ---------- */
+  .main{
+    display:grid;
+    grid-template-columns: 1fr 320px;
+    gap: 22px;
+    align-items: start;
+  }
+  @media (max-width: 860px){
+    .main{ grid-template-columns: 1fr; }
+  }
+
+  .ledger-wrap{
+    border-top: 1px solid var(--ink);
+    max-height: 560px;
+    overflow-y: auto;
+  }
+  table.ledger{
+    width:100%;
+    border-collapse: collapse;
+  }
+  table.ledger thead th{
+    position: sticky; top:0;
+    background: var(--paper);
+    text-align:left;
+    font-weight:500;
+    font-size: 12px;
+    color: var(--ink-faint);
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--rule);
+  }
+  table.ledger th.num, table.ledger td.num{ text-align:right; }
+
+  tr.row{
+    border-bottom: 1px solid var(--rule);
+    cursor:pointer;
+    transition: background .12s ease;
+  }
+  tr.row:hover{ background: var(--paper-raised); }
+  tr.row.selected{ background: #DEE4DA; }
+  tr.row td{
+    padding: 9px 10px;
+    vertical-align: middle;
+    border-left: 3px solid transparent;
+  }
+  tr.row td:first-child{ border-left-width:3px; }
+  tr.row.tier-pass td:first-child{ border-left-color: transparent; }
+  tr.row.tier-stepup td:first-child{ border-left-color: var(--stepup); }
+  tr.row.tier-hold td:first-child{ border-left-color: var(--hold); }
+
+  tr.row.fresh{ animation: settle 1.1s ease-out; }
+  @keyframes settle{
+    from{ background: #D7DED2; }
+    to{ background: transparent; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    tr.row.fresh{ animation: none; }
+  }
+
+  td.time, td.account{ color: var(--ink-muted); font-family:'IBM Plex Mono', monospace; font-size:13px; }
+  td.channel{ font-size:12.5px; color: var(--ink-muted); }
+  td.recipient{ font-size:13px; }
+  td.amount{ font-weight:500; }
+
+  .tier-label{ font-weight:500; }
+  .tier-pass .tier-label{ color: var(--ink-muted); font-weight:400; }
+  .tier-stepup .tier-label{ color: var(--stepup); font-weight:600; }
+  .tier-hold .tier-label{ color: var(--hold); font-weight:700; }
+  .tier-fallback .tier-label{ color: var(--seal-dim); font-style: italic; font-weight: 500; }
+
+  /* ---------- Detail panel ---------- */
+  .detail{
+    border-top: 1px solid var(--ink);
+    padding-top: 14px;
+    min-height: 200px;
+  }
+  .detail-empty{
+    color: var(--ink-faint);
+    font-size: 13px;
+    padding-top: 6px;
+  }
+  .detail-head{
+    display:flex;
+    justify-content: space-between;
+    align-items:baseline;
+    margin-bottom: 14px;
+  }
+  .detail-tier{ font-size: 16px; }
+  .detail-time{ font-family:'IBM Plex Mono', monospace; font-size:12px; color: var(--ink-faint); }
+
+  .detail-field{ margin-bottom: 12px; }
+  .detail-field-label{ font-size:11.5px; color: var(--ink-faint); margin-bottom:2px; }
+  .detail-field-value{ font-size: 13.5px; }
+  .detail-field-value.mono{ font-family:'IBM Plex Mono', monospace; }
+
+  .detail-reason{
+    font-size: 13.5px;
+    line-height: 1.55;
+    padding: 10px 12px;
+    background: var(--paper-raised);
+    border-radius: 3px;
+    margin-bottom: 16px;
+  }
+
+  .risk-bar-wrap{ margin-bottom: 4px; }
+  .risk-bar-track{
+    position:relative;
+    height: 6px;
+    background: var(--paper-raised);
+    border-radius: 3px;
+    overflow: visible;
+  }
+  .risk-bar-fill{
+    position:absolute; left:0; top:0; bottom:0;
+    border-radius: 3px;
+    transition: width .3s ease;
+  }
+  .risk-tick{
+    position:absolute; top:-3px; bottom:-3px;
+    width:1px; background: var(--ink-faint);
+  }
+  .risk-scale{
+    display:flex; justify-content:space-between;
+    font-size: 10.5px; color: var(--ink-faint);
+    margin-top: 4px;
+    font-family:'IBM Plex Mono', monospace;
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <div class="topbar">
+    <div class="brand">Sentinel<span class="brand-sub">account behavior monitor</span></div>
+    <div class="topbar-spacer"></div>
+    <div class="status" id="statusIndicator">
+      <span class="status-dot"></span>
+      <span class="status-text">Live</span>
+    </div>
+    <button class="killswitch" id="killswitch">Fallback: off</button>
+    <button class="glossary-toggle" id="glossaryToggle">
+      <span>Key terms</span><span class="glossary-caret"></span>
+    </button>
+  </div>
+
+  <div class="degraded-banner" id="degradedBanner" hidden>
+    <strong>Static rule fallback active.</strong> Scoring service unreachable — decisions use amount and recipient novelty thresholds only. Every transaction below is still logged for rescoring once the model is back.
+  </div>
+
+  <div class="glossary-panel" id="glossaryPanel" hidden>
+    <div class="glossary-row"><div class="glossary-term">Pass</div><div class="glossary-def">Goes through with no friction. Nothing shown to the customer.</div></div>
+    <div class="glossary-row"><div class="glossary-term">Step up</div><div class="glossary-def">Extra verification required (SMS or voice confirm) before the transfer completes. Friction, not a block.</div></div>
+    <div class="glossary-row"><div class="glossary-term">Hold</div><div class="glossary-def">Paused and sent for review before release. The highest friction tier, reserved for the clearest cases.</div></div>
+    <div class="glossary-row"><div class="glossary-term">Fallback</div><div class="glossary-def">The backup rule based decision method used when the ML scoring service is unreachable.</div></div>
+    <div class="glossary-row"><div class="glossary-term">Degraded</div><div class="glossary-def">The system's state while it's running on the fallback rule instead of the live model.</div></div>
+    <div class="glossary-row"><div class="glossary-term">Kill switch</div><div class="glossary-def">The button above. Manual here, would trip automatically if the model service timed out.</div></div>
+    <div class="glossary-row"><div class="glossary-term">(rule) tag</div><div class="glossary-def">Marks a decision made by the fallback rule, not the ML model.</div></div>
+    <div class="glossary-row"><div class="glossary-term">Rescoring</div><div class="glossary-def">Scoring a fallback decision again once the real model reconnects. See any flagged row's detail panel.</div></div>
+  </div>
+
+  <div class="counts-strip">
+    <div class="count-item"><span class="count-num" id="countPass">0</span><span class="count-label">passed</span></div>
+    <div class="count-item"><span class="count-num" id="countStepup">0</span><span class="count-label">stepped up</span></div>
+    <div class="count-item"><span class="count-num" id="countHold">0</span><span class="count-label">held</span></div>
+    <div class="channel-filter">
+      <button class="filter-btn active" data-filter="all">All channels</button>
+      <button class="filter-btn" data-filter="app">App</button>
+      <button class="filter-btn" data-filter="ussd">USSD</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="ledger-wrap">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Channel</th>
+            <th>Account</th>
+            <th class="num">Amount</th>
+            <th>Recipient</th>
+            <th>Decision</th>
+          </tr>
+        </thead>
+        <tbody id="ledgerBody"></tbody>
+      </table>
+    </div>
+
+    <aside class="detail" id="detail">
+      <div class="detail-empty">Select a transaction to see the full decision.</div>
+    </aside>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  // Backend base URL. Localhost for dev — change this one line once the
+  // backend is deployed to Render (or wherever), nothing else needs to move.
+  const API_BASE = "http://localhost:8000";
+
+  let degraded = false;
+  let connected = false;
+  let thresholds = null; // real calibrated tier boundaries, fetched once at load
+  let selectedId = null;
+  let currentFilter = "all";
+  const rows = []; // in-memory store, newest first
+
+  const ledgerBody = document.getElementById("ledgerBody");
+  const detail = document.getElementById("detail");
+  const killswitch = document.getElementById("killswitch");
+  const statusIndicator = document.getElementById("statusIndicator");
+  const statusText = statusIndicator.querySelector(".status-text");
+  const degradedBanner = document.getElementById("degradedBanner");
+
+  function fmtTime(d){
+    return d.toLocaleTimeString('en-GB', { hour12:false });
+  }
+
+  function tierLabel(tier, wasFallback){
+    if (wasFallback) return tier === "hold" ? "Hold" : "Step up (rule)";
+    return { pass:"Pass", stepup:"Step up", hold:"Hold" }[tier];
+  }
+
+  function setStatus(state){
+    // state: "live" | "degraded" | "disconnected"
+    const dotColor = state === "disconnected" ? "var(--hold)" : state === "degraded" ? "var(--stepup)" : "var(--pass)";
+    statusIndicator.querySelector(".status-dot").style.background = dotColor;
+    statusText.style.color = state === "live" ? "" : dotColor;
+    statusText.style.fontWeight = state === "live" ? "" : "600";
+    statusText.textContent = state === "disconnected" ? "Disconnected" : state === "degraded" ? "Degraded" : "Live";
+    degradedBanner.hidden = state !== "degraded";
+  }
+
+  async function fetchThresholds(){
+    try{
+      const r = await fetch(`${API_BASE}/api/thresholds`);
+      thresholds = await r.json();
+    }catch(e){ /* risk bar falls back to a generic 0-100 scale if this never loads */ }
+  }
+
+  async function fetchInitialStatus(){
+    try{
+      const r = await fetch(`${API_BASE}/api/status`);
+      const j = await r.json();
+      degraded = j.degraded;
+      killswitch.textContent = degraded ? "Fallback: on" : "Fallback: off";
+      killswitch.classList.toggle("active", degraded);
+      setStatus(degraded ? "degraded" : "live");
+      connected = true;
+    }catch(e){ setStatus("disconnected"); }
+  }
+
+  function updateCounts(){
+    const c = { pass:0, stepup:0, hold:0 };
+    rows.forEach(r => c[r.tier]++);
+    document.getElementById("countPass").textContent = c.pass;
+    document.getElementById("countStepup").textContent = c.stepup;
+    document.getElementById("countHold").textContent = c.hold;
+  }
+
+  async function pollNext(){
+    let tx;
+    try{
+      const r = await fetch(`${API_BASE}/api/next`);
+      if (!r.ok) throw new Error("bad response");
+      tx = await r.json();
+      if (!connected){ connected = true; }
+      setStatus(tx.used_fallback ? "degraded" : "live");
+    }catch(e){
+      connected = false;
+      setStatus("disconnected");
+      return; // skip this tick, try again on the next interval
+    }
+
+    const row = {
+      id: tx.transaction_id,
+      time: new Date(),
+      channel: tx.channel,
+      tier: tx.tier,
+      account: tx.account,
+      amount: tx.amount,
+      recipient: tx.recipient,
+      reason: tx.reason,
+      risk: tx.risk,
+      fallback: tx.used_fallback,
+      mlTier: tx.ml_tier,
+      mlReason: tx.ml_reason,
+    };
+    rows.unshift(row);
+    if (rows.length > 60) rows.pop();
+    updateCounts();
+    renderLedger();
+  }
+
+  function renderLedger(){
+    const visible = rows.filter(r => currentFilter === "all" || r.channel === currentFilter);
+    ledgerBody.innerHTML = "";
+    visible.forEach((r, idx) => {
+      const tr = document.createElement("tr");
+      tr.className = `row tier-${r.tier}` + (r.fallback && r.tier==="stepup" ? " tier-fallback" : "") + (idx === 0 ? " fresh" : "");
+      tr.tabIndex = 0;
+      if (r.id === selectedId) tr.classList.add("selected");
+      tr.innerHTML = `
+        <td class="time">${fmtTime(r.time)}</td>
+        <td class="channel">${r.channel === "app" ? "App" : "USSD"}</td>
+        <td class="account mono">${r.account}</td>
+        <td class="amount num mono">₦${Math.round(r.amount).toLocaleString()}</td>
+        <td class="recipient">${r.recipient}</td>
+        <td class="tier-label">${tierLabel(r.tier, r.fallback)}</td>
+      `;
+      tr.addEventListener("click", () => selectRow(r.id));
+      tr.addEventListener("keydown", (e) => { if (e.key === "Enter") selectRow(r.id); });
+      ledgerBody.appendChild(tr);
+    });
+  }
+
+  function riskPercent(risk, channel){
+    if (!thresholds) return Math.min(95, risk * 100); // generic fallback before thresholds load
+    const t = channel === "app" ? thresholds.app : thresholds.meta;
+    const max = t.hold * 1.15;
+    return Math.max(2, Math.min(100, (risk / max) * 100));
+  }
+
+  function selectRow(id){
+    selectedId = id;
+    const r = rows.find(x => x.id === id);
+    renderLedger();
+    if (!r) return;
+    const tierColor = { pass: "var(--pass)", stepup: "var(--stepup)", hold: "var(--hold)" }[r.tier];
+    const t = r.channel === "app" ? (thresholds && thresholds.app) : (thresholds && thresholds.meta);
+    const stepupPct = t ? riskPercent(t.stepup, r.channel) : 55;
+    const holdPct = t ? riskPercent(t.hold, r.channel) : 84;
+
+    const rescoreNote = r.fallback
+      ? `<div class="detail-field">
+           <div class="detail-field-label">When the model reconnects</div>
+           <div class="detail-field-value">Queued for rescoring — the model would call this <strong>${tierLabel(r.mlTier,false)}</strong>${r.mlReason ? ": " + r.mlReason.replace(/^Flagged because: /,'') : ", no deviation found."}</div>
+         </div>`
+      : "";
+
+    detail.innerHTML = `
+      <div class="detail-head">
+        <span class="detail-tier tier-label tier-${r.tier}" style="color:${tierColor}">${tierLabel(r.tier, r.fallback)}</span>
+        <span class="detail-time mono">${fmtTime(r.time)}</span>
+      </div>
+      <div class="detail-field">
+        <div class="detail-field-label">Account</div>
+        <div class="detail-field-value mono">${r.account} · ${r.channel === "app" ? "App" : "USSD"}</div>
+      </div>
+      <div class="detail-field">
+        <div class="detail-field-label">Amount</div>
+        <div class="detail-field-value mono">₦${Math.round(r.amount).toLocaleString()} to ${r.recipient}</div>
+      </div>
+      ${r.reason ? `<div class="detail-reason">${r.reason}</div>` : `<div class="detail-reason" style="color:var(--ink-muted)">No deviation from this account's normal pattern.</div>`}
+      ${rescoreNote}
+      <div class="detail-field-label">Risk score</div>
+      <div class="risk-bar-wrap">
+        <div class="risk-bar-track">
+          <div class="risk-bar-fill" style="width:${riskPercent(r.risk, r.channel)}%; background:${tierColor}"></div>
+          <div class="risk-tick" style="left:${stepupPct}%"></div>
+          <div class="risk-tick" style="left:${holdPct}%"></div>
+        </div>
+        <div class="risk-scale"><span>0</span><span>step up</span><span>hold</span><span>max</span></div>
+      </div>
+    `;
+  }
+
+  document.querySelectorAll(".filter-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".filter-btn").forEach(b=>b.classList.remove("active"));
+      btn.classList.add("active");
+      currentFilter = btn.dataset.filter;
+      renderLedger();
+    });
+  });
+
+  const glossaryToggle = document.getElementById("glossaryToggle");
+  const glossaryPanel = document.getElementById("glossaryPanel");
+  glossaryToggle.addEventListener("click", () => {
+    const opening = glossaryPanel.hasAttribute("hidden");
+    if (opening) glossaryPanel.removeAttribute("hidden"); else glossaryPanel.setAttribute("hidden", "");
+    glossaryToggle.classList.toggle("open", opening);
+  });
+
+  killswitch.addEventListener("click", async () => {
+    killswitch.disabled = true;
+    try{
+      const r = await fetch(`${API_BASE}/api/toggle-fallback`, { method: "POST" });
+      const j = await r.json();
+      degraded = j.degraded;
+      killswitch.textContent = degraded ? "Fallback: on" : "Fallback: off";
+      killswitch.classList.toggle("active", degraded);
+      setStatus(degraded ? "degraded" : "live");
+    }catch(e){ /* server unreachable — leave state as-is, next poll will show disconnected */ }
+    killswitch.disabled = false;
+  });
+
+  // startup: sync real state, load real thresholds, then start polling for real transactions
+  (async function init(){
+    await fetchInitialStatus();
+    await fetchThresholds();
+    pollNext();
+    setInterval(pollNext, 1900);
+  })();
+})();
+</script>
+
+</body>
+</html>
