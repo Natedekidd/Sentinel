@@ -33,7 +33,7 @@ Then open `frontend/index.html` in a browser.
 
 ## Results (held-out test set)
 
-- ROC-AUC: 0.865 blended — 0.961 app channel, 0.772 USSD channel
+- ROC-AUC: 0.865 blended, 0.961 app channel, 0.772 USSD channel
 - `stolen_otp`: 100% caught, including cold start accounts with zero personal history
 - `sim_swap`: 100% caught, including on USSD with no app signal at all
 - `drip` (patient, escalating transfers): 32.4% caught overall, but recall climbs from 0% on the first small transfer to 100% by the fifth to eighth step, as the rolling weekly velocity feature accumulates enough signal
